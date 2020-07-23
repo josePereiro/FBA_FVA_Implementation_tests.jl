@@ -346,7 +346,7 @@ function fva_pp_model_test(tname, fva_method, fba_method, model_file)
 end
 
 fva_tests = Dict()
-for model_file in model_files[1:2] # HumanGEM takes a really long time
+for model_file in model_files # HumanGEM takes a really long time
     fva_tests[model_file] = Dict()
     println("\n ------------- $model_file -------------")
     for (tname, fva_JuMP, fba_fun) in [("FVA JuMP-GLPK", fva_JuMP, fba_JuMP), 
