@@ -71,46 +71,55 @@ rxnindex(model, ider::AbstractString) = findfirst(isequal(ider), model["rxns"])
 # ### JuMP
 
 # +
-function fva_JuMP(S, b, lb, ub; verbose = true, upfrec = 10, solver = Clp.Optimizer)
-    
-    M, N = size(S)
-    upfrec = floor(Int, max(N/ upfrec, 1))
+function fva_JuMP(S, b, lb, ub, idxs = eachindex(lb); 
+        verbose = true, 
+        upfrec = 10, 
+        zeroth = 1e-10,
+        solver = Clp.Optimizer)
     
     verbose && (println("Creating LP model"); flush(stdout))    
     lp_model = JuMP.Model(solver)
     JuMP.set_optimizer_attribute(lp_model, "LogLevel", 0)
 
     verbose && (println("Creating LP variables"); flush(stdout))
-    JuMP.@variable(lp_model, lp_x[1:N])
+    JuMP.@variable(lp_model, lp_x[1:size(S, 2)])
     
     verbose && (println("Creating LP contraints"); flush(stdout))
     JuMP.@constraint(lp_model, balance, S * lp_x .== b)
     JuMP.@constraint(lp_model, bounds, lb .<= lp_x .<= ub)
 
-    lval = similar(lb)
-    uval = similar(ub)
+    lvals = zeros(eltype(S), length(idxs))
+    uvals = zeros(eltype(S), length(idxs))
     
     verbose && (println("FVA Processing"); flush(stdout))
-    for i in 1:N
+    n = length(idxs)
+    upfrec = floor(Int, max(n/ upfrec, 1))
+    
+    for (i, idx) in enumerate(idxs)
         
-        show_progress = verbose && (i == 1 || i == N || i % upfrec == 0)
-        show_progress && (println("Doing $i / $N"); flush(stdout))
+        show_progress = verbose && (i == 1 || i == n || i % upfrec == 0)
+        show_progress && (println("Doing $i / $n"); flush(stdout))
         
         # lower val
-        JuMP.@objective(lp_model, JuMP.MOI.MIN_SENSE, lp_x[i])
+        JuMP.@objective(lp_model, JuMP.MOI.MIN_SENSE, lp_x[idx])
         JuMP.optimize!(lp_model)
-        lval[i] = JuMP.value(lp_x[i])
+        x = JuMP.value(lp_x[idx])
+        lvals[i] = abs(x) < zeroth ? zero(x) : x
         
         # upper val
-        JuMP.@objective(lp_model, JuMP.MOI.MAX_SENSE, lp_x[i])
+        JuMP.@objective(lp_model, JuMP.MOI.MAX_SENSE, lp_x[idx])
         JuMP.optimize!(lp_model)
-        uval[i] = JuMP.value(lp_x[i])
+        x = JuMP.value(lp_x[idx])
+        uvals[i] = abs(x) < zeroth ? zero(x) : x
         
     end
-    return (lval, uval)
+    return (lvals, uvals)
 end
 
-fva_JuMP(model; kwargs...) = fva_JuMP(model["S"], model["b"], model["lb"], model["ub"]; kwargs...)
+function fva_JuMP(model, iders = eachindex(model["lb"]); kwargs...) 
+    idxs = [rxnindex(model, idx) for idx in iders]
+    fva_JuMP(model["S"], model["b"], model["lb"], model["ub"], idxs; kwargs...)
+end
 # -
 
 # ### MathProgBase
@@ -260,7 +269,7 @@ end
 # # Tests
 # ---
 
-model_files = ["toy_model.json", "iJR904.json", "HumanGEM.json"]
+model_files = ["toy_model.json", "iJR904.json", "HumanGEM.json"][1:2]
 @assert all(isfile.(model_files))
 
 # ### Testing FBA
@@ -379,3 +388,7 @@ for (model_file, results) in fva_tests
 end
 
 p = Plots.plot(ps..., size = (700, 300), layout = (1,length(ps)), titlefont = 10)
+
+# ### Testing fva step by step
+
+
